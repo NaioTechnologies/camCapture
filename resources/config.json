@@ -1,0 +1,11 @@
+{
+	"stereobench": {
+		"width": 752,
+		"height": 480,
+		"auto_exposure": false,
+		"exposure_min": 50,
+		"exposure_max": 10000,
+		"exposure": 20000,
+		"hdr": true
+	}
+}
