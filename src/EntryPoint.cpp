@@ -163,64 +163,77 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
 
-		bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
+		bool autoExp = benchConfig.get( "auto_exposure", false ).asBool();
 		uint32_t lowerLimit = benchConfig.get( "exposure_min", 50 ).asUInt();
 		uint32_t upperLimit = benchConfig.get( "exposure_max", 1000 ).asUInt();
 
 		bool hdr = benchConfig.get( "hdr", false ).asBool();
 
+		bool whiteCal = benchConfig.get("white_cal", false).asBool();
+		uint32_t whiteCalFrameRate = benchConfig.get("white_cal_frame_rate", 100).asUInt();
+
 		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
 
-		cl::ignore( exposure, autoexp );
-
-		io::BlueFoxStereo stereoCapture;
-		stereoCapture.start( ht::ColorSpace::Rgb, width, height, upperLimit,
-		                     lowerLimit, hdr );
+		cl::ignore( exposure, autoExp );
 
 		uint64_t imageCount{ };
 		int8_t pressed{ };
 
-		while( !is_signaled() && pressed != 'q' )
+		io::MVBlueFoxManager manager;
+		io::MVBlueFoxPtr camera = manager.get_device( 0 );
+
+		camera->open( ht::ColorSpace::Rgb );
+		camera->set_auto_exposure( autoExp );
+		camera->set_min_exposure( lowerLimit );
+		camera->set_max_exposure( upperLimit );
+		if( hdr )
 		{
-			io::StereoEntry entry;
-			bool grabbed = stereoCapture.get_latest_entry( entry );
-			if( grabbed )
-			{
-				cl::print_line( pressed );
-				stereoCapture.clear_entry_buffer();
-
-				cv::Mat3b mat_l = cv::Mat3b::zeros( size );
-				cv::Mat3b mat_r = cv::Mat3b::zeros( size );
-
-				cl::BufferUniquePtr l = entry.frameLeft->extract_data();
-				cl::BufferUniquePtr r = entry.frameRight->extract_data();
-
-				mat_l.data = l->data();
-				mat_r.data = r->data();
-
-				std::string file_path_l{ dateStr };
-				file_path_l.append( "/" );
-				file_path_l.append( std::to_string( imageCount ) );
-				file_path_l.append( "_l.tiff" );
-
-				std::string file_path_r{ dateStr };
-				file_path_r.append( "/" );
-				file_path_r.append( std::to_string( imageCount ) );
-				file_path_r.append( "_r.tiff" );
-
-				cv::imwrite( file_path_l, mat_l );
-				cv::imwrite( file_path_r, mat_r );
-
-				cv::imshow( "left", mat_l );
-				cv::imshow( "right", mat_r );
-
-				pressed = static_cast<int8_t>(cv::waitKey( 10 ));
-
-				++imageCount;
-			}
+			camera->enable_hdr();
 		}
 
-		stereoCapture.stop();
+		cl::print_line("width: ", width);
+		cl::print_line("height: ", height);
+		cl::print_line("auto_exposure: ", autoExp);
+		cl::print_line("exposure_min: ", lowerLimit);
+		cl::print_line("exposure_max: ", upperLimit);
+		cl::print_line("exposure: ", exposure);
+		cl::print_line("hdr: ", hdr);
+		cl::print_line("white_cal: ", whiteCal);
+		cl::print_line("white_cal_frame_rate: ", whiteCalFrameRate);
+
+
+		while( !is_signaled() && pressed != 'q' )
+		{
+			io::FramePtr frame = camera->wait_for_image( 250 );
+			cv::Mat cam = cv::Mat::zeros( size, CV_8UC3 );
+
+			if( frame )
+			{
+				if( whiteCal )
+				{
+					if( imageCount % whiteCalFrameRate == 0 )
+					{
+						camera->calibrate_white_balance();
+					}
+				}
+				cl::BufferUniquePtr buffer = frame->extract_data();
+				cam.data = buffer->data();
+
+				std::string file_path{ dateStr };
+				file_path.append( "/" );
+				file_path.append( std::to_string( imageCount ) );
+				file_path.append( ".tiff" );
+
+				cv::imwrite( file_path, cam );
+
+				cv::imshow( "cam", cam );
+			}
+
+			pressed = static_cast<int8_t>( cv::waitKey( 10 ) );
+
+			++imageCount;
+		}
+		camera->close();
 	}
 
 	return res;
