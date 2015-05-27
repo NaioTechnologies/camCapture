@@ -17,7 +17,7 @@ else( ROBBIE_LIBRARIES AND ROBBIE_INCLUDE_DIRS )
     # Looking for include folders
     find_path( ROBBIE_INCLUDE_DIR
         NAMES
-            BuildVersion.h
+            BuildVersion.hpp
         PATHS
             $ENV{LIB_DIR}/include
             /usr/include
@@ -41,7 +41,7 @@ else( ROBBIE_LIBRARIES AND ROBBIE_INCLUDE_DIRS )
     SET( ROBBIE_LIBRARIES ${ROBBIE_LIBRARY} )
 
     macro( check_version )
-        file( READ "${ROBBIE_INCLUDE_DIR}/BuildVersion.h" BUILD_VERSION_HEADER )
+        file( READ "${ROBBIE_INCLUDE_DIR}/BuildVersion.hpp" BUILD_VERSION_HEADER )
 
         # Major version
         string( REGEX MATCH "define[ \t]+LIBRARY_MAJOR_VERSION[ \t]+([0-9]+)+"

@@ -53,7 +53,9 @@ set( SOURCE_DIR		${PROJECT_SOURCE_DIR}/src )
 #
 #   Additional include directories
 #
-include_directories( ${INCLUDE_DIR} )
+include_directories(
+	${INCLUDE_DIR}
+)
 
 
 #--------------------------------------------------------------------------------------------------
@@ -177,8 +179,8 @@ add_executable( ${PROJECT_NAME} ${EXECUTABLE_SOURCES} )
 #   Library includes
 #
 target_include_directories( ${PROJECT_NAME} SYSTEM PUBLIC
-	${LOKI_INCLUDE_DIRS}
 	${VITALS_INCLUDE_DIRS}
+	${LOKI_INCLUDE_DIRS}
 	${TIFF_INCLUDE_DIRS}
 	${JPEG_INCLUDE_DIRS}
 	${ROBBIE_INCLUDE_DIRS}
@@ -193,9 +195,6 @@ target_include_directories( ${PROJECT_NAME} SYSTEM PUBLIC
 #   Executable linking
 #
 target_link_libraries( ${PROJECT_NAME}
-	-pie
-	-lpthread
-
 	${LOKI_LIBRARIES}
 	${VITALS_LIBRARIES}
 	${ROBBIE_LIBRARIES}

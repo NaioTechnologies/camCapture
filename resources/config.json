@@ -4,7 +4,7 @@
 		"height": 480,
 		"auto_exposure": true,
 		"exposure_min": 50,
-		"exposure_max": 25000,
+		"exposure_max": 20000,
 		"exposure": 10000,
 		"hdr": true,
         "white_cal": true,
