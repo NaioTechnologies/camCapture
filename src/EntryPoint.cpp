@@ -184,8 +184,6 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		cl::print_line( "Recording session in: ", dateStr );
 
-		//io::TiffWriter tiffWriter;
-
 		uint64_t imageCount{ };
 		int8_t pressed{ };
 		while( !is_signaled() && pressed != 27 )
@@ -211,10 +209,12 @@ EntryPoint::run( int32_t argc, const char** argv )
 			file_path_r.append( std::to_string( imageCount ) );
 			file_path_r.append( "_r.tiff" );
 
-			//tiffWriter.write_to_file( entry->bitmap_left(), file_path_l );
+			io::TiffWriter tiffWriter;
+			tiffWriter
+				.write_to_file( entry->bitmap_left(), imageCount, file_path_l, "toto_computer" );
 
-			cv::imwrite( file_path_l, matL );
-			cv::imwrite( file_path_r, matR );
+			//cv::imwrite( file_path_l, matL );
+			//cv::imwrite( file_path_r, matR );
 
 			cv::imshow( "left", matL );
 			cv::imshow( "right", matR );
@@ -224,7 +224,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 			++imageCount;
 		}
 
-		stereoCapture.stop();
+		//stereoCapture.stop();
 	}
 
 	return res;
