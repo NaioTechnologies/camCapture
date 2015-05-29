@@ -24,6 +24,7 @@
 #include <IO/BlueFoxStereo.h>
 #include <IO/JsonReader.hpp>
 #include <IO/IOTiffWriter.hpp>
+#include <IO/IOTiffReader.hpp>
 
 #include <CLFileSystem.h>
 #include <CLDate.h>
@@ -169,12 +170,12 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		if( autoexp )
 		{
-			stereoCapture.start( ht::ColorSpace::Rgb, width, height, 40000, lowerLimit, upperLimit,
+			stereoCapture.start( ht::ColorSpace::Bgr, width, height, 40000, lowerLimit, upperLimit,
 			                     hdr );
 		}
 		else
 		{
-			stereoCapture.start( ht::ColorSpace::Rgb, width, height, 40000, exposure, hdr );
+			stereoCapture.start( ht::ColorSpace::Bgr, width, height, 40000, exposure, hdr );
 		}
 
 		std::string dateStr{ };
@@ -193,38 +194,28 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 			stereoCapture.clear_entry_buffer();
 
+			const std::string filePath =
+				cl::filesystem::create_filespec( dateStr, std::to_string( imageCount ),
+				                                 io::tiff_file_extensions()[1] );
+
+			io::TiffWriter tiffWriter{ filePath };
+			tiffWriter.write_to_file( entry->bitmap_left(), imageCount, "jeanComputer" );
+			tiffWriter.write_to_file( entry->bitmap_right(), imageCount, "jeanComputer" );
+
 			cv::Mat3b matL = cv::Mat3b::zeros( size );
 			cv::Mat3b matR = cv::Mat3b::zeros( size );
 
 			matL.data = entry->bitmap_left().data();
 			matR.data = entry->bitmap_right().data();
 
-			std::string file_path_l{ dateStr };
-			file_path_l.append( "/" );
-			file_path_l.append( std::to_string( imageCount ) );
-			file_path_l.append( "_l.tiff" );
-
-			std::string file_path_r{ dateStr };
-			file_path_r.append( "/" );
-			file_path_r.append( std::to_string( imageCount ) );
-			file_path_r.append( "_r.tiff" );
-
-			io::TiffWriter tiffWriter;
-			tiffWriter
-				.write_to_file( entry->bitmap_left(), imageCount, file_path_l, "toto_computer" );
-
-			//cv::imwrite( file_path_l, matL );
-			//cv::imwrite( file_path_r, matR );
-
-			cv::imshow( "left", matL );
-			cv::imshow( "right", matR );
+			cv::imshow( "sourceL", matL );
+			cv::imshow( "sourceR", matR );
 
 			pressed = static_cast<int8_t>(cv::waitKey( 10 ));
 
 			++imageCount;
 		}
-
-		//stereoCapture.stop();
+		stereoCapture.stop();
 	}
 
 	return res;
