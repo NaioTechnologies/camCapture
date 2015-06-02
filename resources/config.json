@@ -2,12 +2,13 @@
 	"stereobench": {
 		"width": 752,
 		"height": 480,
-		"auto_exposure": true,
-		"exposure_min": 50,
+		"average_gray_value": 70,
+		"auto_exposure": false,
+		"exposure_min": 12,
 		"exposure_max": 20000,
-		"exposure": 10000,
+		"exposure": 20000,
 		"hdr": true,
-        "white_cal": true,
+        "white_cal": false,
         "white_cal_frame_rate": 100
 	}
 }

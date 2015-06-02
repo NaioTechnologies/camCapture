@@ -26,11 +26,14 @@
 #include <IO/IOTiffWriter.hpp>
 #include <IO/IOTiffReader.hpp>
 
+#include "Control/CTPid.hpp"
+
 #include <CLFileSystem.h>
 #include <CLDate.h>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 
 //==================================================================================================
@@ -151,32 +154,23 @@ EntryPoint::run( int32_t argc, const char** argv )
 		jsonReader.load( resourceFolder.append( "config.json" ) );
 		Json::Value benchConfig( jsonReader.root()["stereobench"] );
 
-		uint32_t width = benchConfig.get( "width", 752 ).asUInt();
-		uint32_t height = benchConfig.get( "height", 480 ).asUInt();
+		const uint32_t width = benchConfig.get( "width", 752 ).asUInt();
+		const uint32_t height = benchConfig.get( "height", 480 ).asUInt();
 
-		uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
+		const uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
 
-		bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
-		uint32_t lowerLimit = benchConfig.get( "exposure_min", 50 ).asUInt();
-		uint32_t upperLimit = benchConfig.get( "exposure_max", 1000 ).asUInt();
+		const uint8_t grayLevel = benchConfig.get( "average_gray_value", 50 ).asUInt();
 
-		bool hdr = benchConfig.get( "hdr", false ).asBool();
+		const bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
+		const uint32_t minExposure = benchConfig.get( "exposure_min", 12 ).asUInt();
+		const uint32_t maxExposure = benchConfig.get( "exposure_max", 20000 ).asUInt();
+
+		const bool hdr = benchConfig.get( "hdr", false ).asBool();
 
 		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
 
-		cl::ignore( exposure, autoexp );
-
 		io::BlueFoxStereo stereoCapture;
-
-		if( autoexp )
-		{
-			stereoCapture.start( ht::ColorSpace::Bgr, width, height, 40000, lowerLimit, upperLimit,
-			                     hdr );
-		}
-		else
-		{
-			stereoCapture.start( ht::ColorSpace::Bgr, width, height, 40000, exposure, hdr );
-		}
+		stereoCapture.start( ht::ColorSpace::Bgr, width, height, minExposure, maxExposure, hdr );
 
 		std::string dateStr{ };
 		CLDate date;
@@ -184,6 +178,11 @@ EntryPoint::run( int32_t argc, const char** argv )
 		cl::filesystem::folder_create( dateStr );
 
 		cl::print_line( "Recording session in: ", dateStr );
+
+		control::Pid pid;
+		pid.set_pid_gains( 0.2, 0.001, 0.0005 );
+
+		uint32_t currentExposure{ };
 
 		uint64_t imageCount{ };
 		int8_t pressed{ };
@@ -198,18 +197,79 @@ EntryPoint::run( int32_t argc, const char** argv )
 				cl::filesystem::create_filespec( dateStr, std::to_string( imageCount ),
 				                                 io::tiff_file_extensions()[1] );
 
-			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter.write_to_file( entry->bitmap_left(), imageCount, "jeanComputer" );
-			tiffWriter.write_to_file( entry->bitmap_right(), imageCount, "jeanComputer" );
+			io::TiffWriter tiffWriter;
+			tiffWriter.write_to_file( filePath, entry->bitmap_left(), imageCount, "jeanComputer" );
+			tiffWriter.write_to_file( filePath, entry->bitmap_right(), imageCount, "jeanComputer" );
 
-			cv::Mat3b matL = cv::Mat3b::zeros( size );
-			cv::Mat3b matR = cv::Mat3b::zeros( size );
+			cv::Mat matL = cv::Mat( size, CV_8UC3 );
+			cv::Mat matR = cv::Mat( size, CV_8UC3 );
+
+			cv::Mat bgrL = cv::Mat( size, CV_8UC3 );
+			cv::Mat bgrR = cv::Mat( size, CV_8UC3 );
+
+			cv::Mat greyL = cv::Mat( size, CV_8UC1 );
+			cv::Mat greyR = cv::Mat( size, CV_8UC1 );
 
 			matL.data = entry->bitmap_left().data();
 			matR.data = entry->bitmap_right().data();
 
-			cv::imshow( "sourceL", matL );
-			cv::imshow( "sourceR", matR );
+			cv::cvtColor( matL, bgrL, CV_RGB2BGR );
+			cv::cvtColor( matR, bgrR, CV_RGB2BGR );
+
+			cv::cvtColor( matL, greyL, CV_RGB2GRAY );
+			cv::cvtColor( matR, greyR, CV_RGB2GRAY );
+
+			uint32_t greyLevelL{ };
+			uint32_t greyLevelR{ };
+
+			for( int32_t i = 0; i < greyL.rows; ++i )
+			{
+				for( int32_t j = 0; j < greyL.cols; ++j )
+				{
+					greyLevelL += greyL.at< uint8_t >( i, j );
+					greyLevelR += greyR.at< uint8_t >( i, j );
+				}
+			}
+
+			greyLevelL /= (greyL.rows * greyL.cols);
+			greyLevelR /= (greyL.rows * greyL.cols);
+
+			const uint32_t greyLevel = (greyLevelL + greyLevelR) / 2;
+			const int32_t greyLevelDiff = 127 - greyLevel;
+			const int32_t exposureError = cl::math::normalize< int32_t >( greyLevelDiff, 0, 255, 6,
+			                                                              20000 );
+
+			int32_t correctedExposureError{ };
+			correctedExposureError = pid.compute_correction( exposureError );
+
+			currentExposure += correctedExposureError;
+
+			if( currentExposure < 12 )
+			{
+				pid.reset();
+				currentExposure = 12;
+			}
+			else if( currentExposure > 20000 )
+			{
+				pid.reset();
+				currentExposure = 20000;
+			}
+
+			stereoCapture.set_exposure( currentExposure );
+
+			cv::Mat combine( std::max( bgrL.size().height, bgrR.size().height ),
+			                 bgrL.size().width + bgrR.size().width, CV_8UC3 );
+
+			cv::Mat left_roi( combine, cv::Rect( 0, 0, bgrL.size().width, bgrL.size().height ) );
+			bgrR.copyTo( left_roi );
+
+			cv::Mat right_roi( combine, cv::Rect( bgrL.size().width, 0, bgrR.size().width,
+			                                      bgrR.size().height ) );
+			bgrL.copyTo( right_roi );
+
+			//cv::imwrite( filePath, combine );
+
+			cv::imshow( "images", combine );
 
 			pressed = static_cast<int8_t>(cv::waitKey( 10 ));
 
