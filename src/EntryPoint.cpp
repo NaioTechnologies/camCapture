@@ -180,9 +180,9 @@ EntryPoint::run( int32_t argc, const char** argv )
 		cl::print_line( "Recording session in: ", dateStr );
 
 		control::Pid pid;
-		pid.set_pid_gains( 0.2, 0.001, 0.0005 );
-
-		int32_t currentExposure{ (maxExposure - minExposure) / 2 };
+		pid.set_pid_gains( 3, 0, 0 );
+//1.32
+		int32_t currentExposure{ maxExposure };
 
 		int8_t pressed{ };
 		while( !is_signaled() && pressed != 27 )
@@ -196,11 +196,12 @@ EntryPoint::run( int32_t argc, const char** argv )
 				cl::filesystem::create_filespec( dateStr, std::to_string( entry->get_id() ),
 				                                 io::tiff_file_extensions()[1] );
 
-			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter
-				.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
-			tiffWriter
-				.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
+
+			//io::TiffWriter tiffWriter{ filePath };
+			//tiffWriter
+			//	.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
+			//tiffWriter
+			//	.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
 
 			cv::Mat matL = cv::Mat( size, CV_8UC3 );
 			cv::Mat matR = cv::Mat( size, CV_8UC3 );
@@ -235,26 +236,25 @@ EntryPoint::run( int32_t argc, const char** argv )
 			greyLevelL /= static_cast<uint32_t>(greyL.rows * greyL.cols);
 			greyLevelR /= static_cast<uint32_t>(greyL.rows * greyL.cols);
 
-			const uint32_t greyLevel = (greyLevelL + greyLevelR) / 2;
-			const int32_t greyLevelDiff = 127 - greyLevel;
-			const int32_t exposureError = cl::math::normalize< int32_t >( greyLevelDiff, 0, 255, 6,
-			                                                              20000 );
+			const int32_t greyLevel = (greyLevelL + greyLevelR) / 2;
+			const int32_t greyLevelDiff = 50 - greyLevel;
 
 			const int32_t correctedExposureError =
-				static_cast<int32_t>(std::round( pid.compute_correction( exposureError ) ));
+				static_cast<int32_t>(std::round(
+					pid.compute_correction( static_cast<double>(greyLevelDiff) ) ));
 
 			currentExposure += correctedExposureError;
 
-			if( currentExposure < 12 )
-			{
-				pid.reset();
-				currentExposure = 12;
-			}
-			else if( currentExposure > 20000 )
-			{
-				pid.reset();
-				currentExposure = 20000;
-			}
+			cl::print_line( greyLevelDiff, "; ", currentExposure );
+
+			//if( currentExposure < 12 )
+			//{
+			//	currentExposure = 12;
+			//}
+			//else if( currentExposure > 20000 )
+			//{
+			//	currentExposure = 20000;
+			//}
 
 			stereoCapture.set_exposure( currentExposure );
 

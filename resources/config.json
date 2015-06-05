@@ -4,7 +4,7 @@
 		"height": 480,
 		"average_gray_value": 70,
 		"auto_exposure": false,
-		"exposure_min": 12,
+		"exposure_min": 50,
 		"exposure_max": 20000,
 		"exposure": 20000,
 		"hdr": true,
