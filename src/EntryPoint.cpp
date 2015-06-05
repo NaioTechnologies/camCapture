@@ -170,7 +170,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
 
 		io::BlueFoxStereo stereoCapture;
-		stereoCapture.start( ht::ColorSpace::Bgr, width, height, minExposure, maxExposure, hdr );
+		stereoCapture.start( ht::ColorSpace::Rgb, width, height, minExposure, maxExposure, hdr );
 
 		std::string dateStr{ };
 		CLDate date;
@@ -182,24 +182,25 @@ EntryPoint::run( int32_t argc, const char** argv )
 		control::Pid pid;
 		pid.set_pid_gains( 0.2, 0.001, 0.0005 );
 
-		uint32_t currentExposure{ };
+		int32_t currentExposure{ (maxExposure - minExposure) / 2 };
 
-		uint64_t imageCount{ };
 		int8_t pressed{ };
 		while( !is_signaled() && pressed != 27 )
 		{
-			io::StereoEntryUniquePtr entry;
+			cm::BitmapPairEntryUniquePtr entry;
 			stereoCapture.wait_entry( entry );
 
 			stereoCapture.clear_entry_buffer();
 
 			const std::string filePath =
-				cl::filesystem::create_filespec( dateStr, std::to_string( imageCount ),
+				cl::filesystem::create_filespec( dateStr, std::to_string( entry->get_id() ),
 				                                 io::tiff_file_extensions()[1] );
 
-			io::TiffWriter tiffWriter;
-			tiffWriter.write_to_file( filePath, entry->bitmap_left(), imageCount, "jeanComputer" );
-			tiffWriter.write_to_file( filePath, entry->bitmap_right(), imageCount, "jeanComputer" );
+			io::TiffWriter tiffWriter{ filePath };
+			tiffWriter
+				.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
+			tiffWriter
+				.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
 
 			cv::Mat matL = cv::Mat( size, CV_8UC3 );
 			cv::Mat matR = cv::Mat( size, CV_8UC3 );
@@ -231,16 +232,16 @@ EntryPoint::run( int32_t argc, const char** argv )
 				}
 			}
 
-			greyLevelL /= (greyL.rows * greyL.cols);
-			greyLevelR /= (greyL.rows * greyL.cols);
+			greyLevelL /= static_cast<uint32_t>(greyL.rows * greyL.cols);
+			greyLevelR /= static_cast<uint32_t>(greyL.rows * greyL.cols);
 
 			const uint32_t greyLevel = (greyLevelL + greyLevelR) / 2;
 			const int32_t greyLevelDiff = 127 - greyLevel;
 			const int32_t exposureError = cl::math::normalize< int32_t >( greyLevelDiff, 0, 255, 6,
 			                                                              20000 );
 
-			int32_t correctedExposureError{ };
-			correctedExposureError = pid.compute_correction( exposureError );
+			const int32_t correctedExposureError =
+				static_cast<int32_t>(std::round( pid.compute_correction( exposureError ) ));
 
 			currentExposure += correctedExposureError;
 
@@ -267,13 +268,9 @@ EntryPoint::run( int32_t argc, const char** argv )
 			                                      bgrR.size().height ) );
 			bgrL.copyTo( right_roi );
 
-			//cv::imwrite( filePath, combine );
-
 			cv::imshow( "images", combine );
 
 			pressed = static_cast<int8_t>(cv::waitKey( 10 ));
-
-			++imageCount;
 		}
 		stereoCapture.stop();
 	}
@@ -291,12 +288,11 @@ EntryPoint::run( int32_t argc, const char** argv )
 int32_t
 main( int32_t argc, const char** argv )
 {
-	int32_t ret{ };
+	int32_t ret{ EXIT_SUCCESS };
 
 	try
 	{
-		EntryPoint ep;
-		ret = ep.run( argc, argv );
+		ret = EntryPoint().run( argc, argv );
 	}
 	catch( const cl::SystemError& e )
 	{

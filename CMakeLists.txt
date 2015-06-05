@@ -213,10 +213,10 @@ target_link_libraries( ${PROJECT_NAME}
 
 if( CMAKE_BUILD_TYPE STREQUAL "Debug" )
 	target_link_libraries( ${PROJECT_NAME}
-			-lasan
-			-lubsan
-			#-ltsan
-		)
+		-lasan
+		-lubsan
+		#-ltsan
+	)
 endif()
 
 #--------------------------------------------------------------------------------------------------
