@@ -23,8 +23,9 @@
 
 #include <IO/BlueFoxStereo.h>
 #include <IO/JsonReader.hpp>
-#include <IO/IOTiffWriter.hpp>
-#include <IO/IOTiffReader.hpp>
+#include "IO/IOTiffWriter.hpp"
+#include "IO/IOBufferWriter.hpp"
+#include "IO/IOFileWriter.hpp"
 
 #include "Control/CTPid.hpp"
 
@@ -34,7 +35,6 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-
 
 //==================================================================================================
 // C O N S T A N T S   &   L O C A L   V A R I A B L E S
@@ -169,8 +169,8 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
 
-		io::BlueFoxStereo stereoCapture;
-		stereoCapture.start( ht::ColorSpace::Rgb, width, height, minExposure, maxExposure, hdr );
+		//io::BlueFoxStereo stereoCapture;
+		//stereoCapture.start( ht::ColorSpace::Rgb, width, height, minExposure, maxExposure, hdr );
 
 		std::string dateStr{ };
 		CLDate date;
@@ -178,6 +178,36 @@ EntryPoint::run( int32_t argc, const char** argv )
 		cl::filesystem::folder_create( dateStr );
 
 		cl::print_line( "Recording session in: ", dateStr );
+
+		io::Intrinsics intrinsicsL, intrinsicsR;
+		io::Extrinsics extrinsics;
+		//stereoCapture.read_bench_params( intrinsicsL, intrinsicsR, extrinsics );
+
+		size_t allParamSize( sizeof( double ) * 34 );
+
+		io::BufferWriter bufferWriter( allParamSize );
+
+		bufferWriter.write( intrinsicsL.focalLength );
+		bufferWriter.write( intrinsicsL.principalPointX );
+		bufferWriter.write( intrinsicsL.principalPointY );
+		bufferWriter.write_array( intrinsicsL.distortionCoefs.data(),
+		                          intrinsicsL.distortionCoefs.size());
+
+		bufferWriter.write( intrinsicsR.focalLength );
+		bufferWriter.write( intrinsicsR.principalPointX );
+		bufferWriter.write( intrinsicsR.principalPointY );
+		bufferWriter.write_array( intrinsicsR.distortionCoefs.data(),
+		                          intrinsicsR.distortionCoefs.size());
+
+		bufferWriter.write_array( extrinsics.rotationMatrix.data(),
+		                          extrinsics.rotationMatrix.size());
+
+		bufferWriter.write_array( extrinsics.translationVector.data(),
+		                          extrinsics.translationVector.size());
+
+		const std::string filePath = cl::filesystem::create_filespec( dateStr, "params", "bin" );
+
+		io::write_buffer_to_file( filePath, bufferWriter.get_buffer());
 
 		control::Pid pid;
 		//pid.set_pid_gains( 1.04, 0.001, 2 );
@@ -189,9 +219,9 @@ EntryPoint::run( int32_t argc, const char** argv )
 		while( !is_signaled() && pressed != 27 )
 		{
 			cm::BitmapPairEntryUniquePtr entry;
-			stereoCapture.wait_entry( entry );
+			//stereoCapture.wait_entry( entry );
 
-			stereoCapture.clear_entry_buffer();
+			//stereoCapture.clear_entry_buffer();
 
 			const std::string filePath =
 				cl::filesystem::create_filespec( dateStr, std::to_string( entry->get_id() ),
@@ -253,7 +283,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 				currentExposure = 20000;
 			}
 
-			stereoCapture.set_exposure( currentExposure );
+			//stereoCapture.set_exposure( currentExposure );
 
 			cv::Mat combine( std::max( bgrL.size().height, bgrR.size().height ),
 			                 bgrL.size().width + bgrR.size().width, CV_8UC3 );
@@ -269,7 +299,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 			pressed = static_cast<int8_t>(cv::waitKey( 10 ));
 		}
-		stereoCapture.stop();
+		//stereoCapture.stop();
 	}
 
 	return res;
