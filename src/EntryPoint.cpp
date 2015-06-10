@@ -26,9 +26,9 @@
 #include "IO/IOTiffWriter.hpp"
 #include "IO/IOBufferWriter.hpp"
 #include "IO/IOFileWriter.hpp"
-
 #include "Control/CTPid.hpp"
 
+#include "HTUtility.h"
 #include <CLFileSystem.h>
 
 #include <opencv2/core/core.hpp>
@@ -47,10 +47,7 @@
 //--------------------------------------------------------------------------------------------------
 //
 EntryPoint::EntryPoint()
-	: parser_{ }
-	, handler_{ }
-	, signalHandler_{ }
-	, signaled_{ }
+	: signaled_{ }
 {
 	signalHandler_.attach_handler( ht::SignalHandler::Signal::Interrupt,
 	                               std::bind( &EntryPoint::set_signal, this ) );
@@ -155,14 +152,13 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		const uint32_t width = benchConfig.get( "width", 752 ).asUInt();
 		const uint32_t height = benchConfig.get( "height", 480 ).asUInt();
-
 		const uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
-
 		const uint32_t greyLevelTarget = benchConfig.get( "average_gray_value", 50 ).asUInt();
-
 		const bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
 		const uint32_t minExposure = benchConfig.get( "exposure_min", 12 ).asUInt();
 		const uint32_t maxExposure = benchConfig.get( "exposure_max", 20000 ).asUInt();
+
+		cl::ignore( exposure, autoexp );
 
 		const bool hdr = benchConfig.get( "hdr", false ).asBool();
 
@@ -294,11 +290,11 @@ EntryPoint::run( int32_t argc, const char** argv )
 			                 bgrL.size().width + bgrR.size().width, CV_8UC3 );
 
 			cv::Mat left_roi( combine, cv::Rect( 0, 0, bgrL.size().width, bgrL.size().height ) );
-			bgrR.copyTo( left_roi );
+			bgrL.copyTo( left_roi );
 
 			cv::Mat right_roi( combine, cv::Rect( bgrL.size().width, 0, bgrR.size().width,
 			                                      bgrR.size().height ) );
-			bgrL.copyTo( right_roi );
+			bgrR.copyTo( right_roi );
 
 			cv::imshow( "images", combine );
 
