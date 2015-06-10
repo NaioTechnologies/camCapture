@@ -21,7 +21,7 @@
 #include "BuildVersion.hpp"
 #include "EntryPoint.hpp"
 
-#include <IO/BlueFoxStereo.h>
+#include <IO/IOBlueFoxStereo.hpp>
 #include <IO/JsonReader.hpp>
 #include "IO/IOTiffWriter.hpp"
 #include "IO/IOBufferWriter.hpp"
@@ -30,7 +30,6 @@
 #include "Control/CTPid.hpp"
 
 #include <CLFileSystem.h>
-#include <CLDate.h>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -159,7 +158,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		const uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
 
-		const uint8_t grayLevel = benchConfig.get( "average_gray_value", 50 ).asUInt();
+		const uint32_t greyLevelTarget = benchConfig.get( "average_gray_value", 50 ).asUInt();
 
 		const bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
 		const uint32_t minExposure = benchConfig.get( "exposure_min", 12 ).asUInt();
@@ -175,6 +174,9 @@ EntryPoint::run( int32_t argc, const char** argv )
 		io::CameraInfo infoR = stereoBench.get_camera_info( io::BlueFoxStereo::Position::Right );
 		io::Intrinsics intrinsicsL, intrinsicsR;
 		io::Extrinsics extrinsics;
+		uint32_t serialNumL = cl::str_to_uint32( infoL.serialNum );
+		uint32_t serialNumR = cl::str_to_uint32( infoR.serialNum );
+		uint8_t mode{ 0x01 };
 
 		stereoBench.read_bench_params( intrinsicsL, intrinsicsR, extrinsics );
 
@@ -185,31 +187,35 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		cl::print_line( "Recording session in: ", dateStr );
 
-		size_t allParamSize( sizeof( double ) * 34 + 2 * sizeof( uint32_t ) );
+		size_t allParamSize = sizeof( mode ) + sizeof( serialNumL ) + sizeof( io::Intrinsics ) +
+		                      sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
+		                      sizeof( io::Extrinsics );
 
 		io::BufferWriter bufferWriter( allParamSize );
 
-		bufferWriter.write( cl::str_to_uint32( infoL.serialNum ) );
+		bufferWriter.write( mode );
+
+		bufferWriter.write( serialNumL );
 		io::IntrinsicsArray intrinsicsArrayL = intrinsicsL.to_array();
 		bufferWriter.write_array( intrinsicsArrayL.data(), intrinsicsArrayL.size() );
 
-		bufferWriter.write( cl::str_to_uint32( infoR.serialNum ) );
+		bufferWriter.write( serialNumR );
 		io::IntrinsicsArray intrinsicsArrayR = intrinsicsR.to_array();
 		bufferWriter.write_array( intrinsicsArrayR.data(), intrinsicsArrayR.size() );
 
 		io::ExtrinsicsArray extrinsicsArray = extrinsics.to_array();
 		bufferWriter.write_array( extrinsicsArray.data(), extrinsicsArray.size() );
 
-		const std::string filePath = cl::filesystem::create_filespec( dateStr, "params", "bin" );
+		const std::string filePathP = cl::filesystem::create_filespec( dateStr, "params", "bin" );
 
-		io::write_buffer_to_file( filePath, bufferWriter.get_buffer() );
+		io::write_buffer_to_file( filePathP, bufferWriter.get_buffer() );
 
 		stereoBench.start( ht::ColorSpace::Rgb, width, height, minExposure, maxExposure, hdr );
 
 		control::Pid pid;
 		pid.set_pid_gains( 3, 0, 0 );
 
-		int32_t currentExposure{ maxExposure };
+		int32_t currentExposure{ static_cast<int32_t>(maxExposure) };
 
 		int8_t pressed{ };
 		while( !is_signaled() && pressed != 27 )
@@ -224,10 +230,10 @@ EntryPoint::run( int32_t argc, const char** argv )
 				                                 io::tiff_file_extensions()[1] );
 
 			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter
-				.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
-			tiffWriter
-				.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
+			tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
+			                          entry->get_framerate() );
+			tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
+			                          entry->get_framerate() );
 
 			cv::Mat matL = cv::Mat( size, CV_8UC3 );
 			cv::Mat matR = cv::Mat( size, CV_8UC3 );
@@ -247,8 +253,8 @@ EntryPoint::run( int32_t argc, const char** argv )
 			cv::cvtColor( matL, greyL, CV_RGB2GRAY );
 			cv::cvtColor( matR, greyR, CV_RGB2GRAY );
 
-			uint32_t greyLevelL{ };
-			uint32_t greyLevelR{ };
+			int32_t greyLevelL{ };
+			int32_t greyLevelR{ };
 
 			for( int32_t i = 0; i < greyL.rows; ++i )
 			{
@@ -259,11 +265,11 @@ EntryPoint::run( int32_t argc, const char** argv )
 				}
 			}
 
-			greyLevelL /= static_cast<uint32_t>(greyL.rows * greyL.cols);
-			greyLevelR /= static_cast<uint32_t>(greyL.rows * greyL.cols);
+			greyLevelL /= greyL.rows * greyL.cols;
+			greyLevelR /= greyL.rows * greyL.cols;
 
 			const int32_t greyLevel = (greyLevelL + greyLevelR) / 2;
-			const int32_t greyLevelDiff = 50 - greyLevel;
+			const int32_t greyLevelDiff = static_cast<int32_t>(greyLevelTarget) - greyLevel;
 
 			const int32_t correctedExposureError =
 				static_cast<int32_t>(std::round(
@@ -282,7 +288,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 				currentExposure = 20000;
 			}
 
-			stereoBench.set_exposure( currentExposure );
+			stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
 
 			cv::Mat combine( std::max( bgrL.size().height, bgrR.size().height ),
 			                 bgrL.size().width + bgrR.size().width, CV_8UC3 );
