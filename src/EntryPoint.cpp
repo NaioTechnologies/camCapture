@@ -235,21 +235,19 @@ EntryPoint::run( int32_t argc, const char** argv )
 			                                          entry->bitmap_left().bit_depth(),
 			                                          ht::ColorSpace::Grayscale );
 
-			vm::rgb_to_bgr( entry->bitmap_left(), *grayL );
-			vm::rgb_to_bgr( entry->bitmap_right(), *grayR );
+			std::string filePath = cl::filesystem::create_filespec(
+				dateStr, std::to_string( entry->get_id() ), io::tiff_file_extensions()[1] );
 
-			ht::BitmapUPtr bgrL = ht::unique_bitmap( entry->bitmap_left().width(),
-			                                         entry->bitmap_left().height(),
-			                                         entry->bitmap_left().bit_depth(),
-			                                         ht::ColorSpace::BGR );
+			cl::print_line( filePath );
 
-			ht::BitmapUPtr bgrR = ht::unique_bitmap( entry->bitmap_left().width(),
-			                                         entry->bitmap_left().height(),
-			                                         entry->bitmap_left().bit_depth(),
-			                                         ht::ColorSpace::BGR );
+			io::TiffWriter tiffWriter{ filePath };
+			tiffWriter
+				.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
+			tiffWriter
+				.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
 
-			vm::rgb_to_bgr( entry->bitmap_left(), *bgrL );
-			vm::rgb_to_bgr( entry->bitmap_right(), *bgrR );
+			vm::rgb_to_grey( entry->bitmap_left(), *grayL );
+			vm::rgb_to_grey( entry->bitmap_right(), *grayR );
 
 			double greyLevelL{ };
 			double greyLevelR{ };
