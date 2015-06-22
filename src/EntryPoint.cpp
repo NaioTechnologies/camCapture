@@ -27,9 +27,12 @@
 #include "IO/IOBufferWriter.hpp"
 #include "IO/IOFileWriter.hpp"
 #include "Control/CTPid.hpp"
+#include "VisionModule/VMConversion.hpp"
+#include "VisionModule/VMStatistics.hpp"
 
 #include "HTUtility.h"
-#include <CLFileSystem.h>
+#include "HTBitmap.hpp"
+#include "CLFileSystem.h"
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -202,17 +205,18 @@ EntryPoint::run( int32_t argc, const char** argv )
 		io::ExtrinsicsArray extrinsicsArray = extrinsics.to_array();
 		bufferWriter.write_array( extrinsicsArray.data(), extrinsicsArray.size() );
 
-		const std::string filePathP = cl::filesystem::create_filespec( dateStr, "params", "bin" );
+		const std::string filePathP = cl::filesystem::create_filespec( dateStr, "capture", "bin" );
 
 		io::write_buffer_to_file( filePathP, bufferWriter.get_buffer() );
 
-		stereoBench.start( ht::ColorSpace::Rgb, width, height, minExposure, maxExposure, hdr );
+		stereoBench.start( ht::ColorSpace::RGB, width, height, minExposure, maxExposure, hdr );
 
 		control::Pid pid;
 		pid.set_pid_gains( 3, 0, 0 );
 
 		int32_t currentExposure{ static_cast<int32_t>(maxExposure) };
 
+		size_t nbr{ };
 		int8_t pressed{ };
 		while( !is_signaled() && pressed != 27 )
 		{
@@ -221,50 +225,39 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 			stereoBench.clear_entry_buffer();
 
-			const std::string filePath =
-				cl::filesystem::create_filespec( dateStr, std::to_string( entry->get_id() ),
-				                                 io::tiff_file_extensions()[1] );
+			ht::BitmapUPtr grayL = ht::unique_bitmap( entry->bitmap_left().width(),
+			                                          entry->bitmap_left().height(),
+			                                          entry->bitmap_left().bit_depth(),
+			                                          ht::ColorSpace::Grayscale );
 
-			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
-			                          entry->get_framerate() );
-			tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
-			                          entry->get_framerate() );
+			ht::BitmapUPtr grayR = ht::unique_bitmap( entry->bitmap_left().width(),
+			                                          entry->bitmap_left().height(),
+			                                          entry->bitmap_left().bit_depth(),
+			                                          ht::ColorSpace::Grayscale );
 
-			cv::Mat matL = cv::Mat( size, CV_8UC3 );
-			cv::Mat matR = cv::Mat( size, CV_8UC3 );
+			vm::rgb_to_bgr( entry->bitmap_left(), *grayL );
+			vm::rgb_to_bgr( entry->bitmap_right(), *grayR );
 
-			cv::Mat bgrL = cv::Mat( size, CV_8UC3 );
-			cv::Mat bgrR = cv::Mat( size, CV_8UC3 );
+			ht::BitmapUPtr bgrL = ht::unique_bitmap( entry->bitmap_left().width(),
+			                                         entry->bitmap_left().height(),
+			                                         entry->bitmap_left().bit_depth(),
+			                                         ht::ColorSpace::BGR );
 
-			cv::Mat greyL = cv::Mat( size, CV_8UC1 );
-			cv::Mat greyR = cv::Mat( size, CV_8UC1 );
+			ht::BitmapUPtr bgrR = ht::unique_bitmap( entry->bitmap_left().width(),
+			                                         entry->bitmap_left().height(),
+			                                         entry->bitmap_left().bit_depth(),
+			                                         ht::ColorSpace::BGR );
 
-			matL.data = entry->bitmap_left().data();
-			matR.data = entry->bitmap_right().data();
+			vm::rgb_to_bgr( entry->bitmap_left(), *bgrL );
+			vm::rgb_to_bgr( entry->bitmap_right(), *bgrR );
 
-			cv::cvtColor( matL, bgrL, CV_RGB2BGR );
-			cv::cvtColor( matR, bgrR, CV_RGB2BGR );
+			double greyLevelL{ };
+			double greyLevelR{ };
 
-			cv::cvtColor( matL, greyL, CV_RGB2GRAY );
-			cv::cvtColor( matR, greyR, CV_RGB2GRAY );
+			vm::mean( *grayL, greyLevelL );
+			vm::mean( *grayR, greyLevelR );
 
-			int32_t greyLevelL{ };
-			int32_t greyLevelR{ };
-
-			for( int32_t i = 0; i < greyL.rows; ++i )
-			{
-				for( int32_t j = 0; j < greyL.cols; ++j )
-				{
-					greyLevelL += greyL.at< uint8_t >( i, j );
-					greyLevelR += greyR.at< uint8_t >( i, j );
-				}
-			}
-
-			greyLevelL /= greyL.rows * greyL.cols;
-			greyLevelR /= greyL.rows * greyL.cols;
-
-			const int32_t greyLevel = (greyLevelL + greyLevelR) / 2;
+			const double greyLevel = ( greyLevelL + greyLevelR ) / 2;
 			const int32_t greyLevelDiff = static_cast<int32_t>(greyLevelTarget) - greyLevel;
 
 			const int32_t correctedExposureError =
@@ -272,8 +265,6 @@ EntryPoint::run( int32_t argc, const char** argv )
 					pid.compute_correction( static_cast<double>(greyLevelDiff) ) ));
 
 			currentExposure += correctedExposureError;
-
-			//cl::print_line( greyLevelDiff, "; ", currentExposure );
 
 			if( currentExposure < 12 )
 			{
@@ -286,19 +277,25 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 			stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
 
-			cv::Mat combine( std::max( bgrL.size().height, bgrR.size().height ),
-			                 bgrL.size().width + bgrR.size().width, CV_8UC3 );
+			cv::Mat matL = cv::Mat( size, CV_8UC3 );
+			cv::Mat matR = cv::Mat( size, CV_8UC3 );
 
-			cv::Mat left_roi( combine, cv::Rect( 0, 0, bgrL.size().width, bgrL.size().height ) );
-			bgrL.copyTo( left_roi );
+			matL.data = entry->bitmap_left().data();
+			matR.data = entry->bitmap_right().data();
 
-			cv::Mat right_roi( combine, cv::Rect( bgrL.size().width, 0, bgrR.size().width,
-			                                      bgrR.size().height ) );
-			bgrR.copyTo( right_roi );
+			cv::Mat combine( std::max( matL.size().height, matR.size().height ),
+			                 matL.size().width + matR.size().width, CV_8UC3 );
+
+			cv::Mat left_roi( combine, cv::Rect( 0, 0, matL.size().width, matL.size().height ) );
+			matL.copyTo( left_roi );
+
+			cv::Mat right_roi( combine, cv::Rect( matL.size().width, 0, matR.size().width,
+			                                      matR.size().height ) );
+			matR.copyTo( right_roi );
 
 			cv::imshow( "images", combine );
 
-			pressed = static_cast<int8_t>(cv::waitKey( 10 ));
+			pressed = static_cast<int8_t>( cv::waitKey( 1 ) );
 		}
 		stereoBench.stop();
 	}
