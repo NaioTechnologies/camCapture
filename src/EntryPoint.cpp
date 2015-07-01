@@ -156,7 +156,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 		const uint32_t width = benchConfig.get( "width", 752 ).asUInt();
 		const uint32_t height = benchConfig.get( "height", 480 ).asUInt();
 		const uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
-		const uint32_t greyLevelTarget = benchConfig.get( "average_gray_value", 50 ).asUInt();
+		const uint32_t greyLevelTarget = benchConfig.get( "average_gray_value", 70 ).asUInt();
 		const bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
 		const uint32_t minExposure = benchConfig.get( "exposure_min", 12 ).asUInt();
 		const uint32_t maxExposure = benchConfig.get( "exposure_max", 20000 ).asUInt();
@@ -241,10 +241,10 @@ EntryPoint::run( int32_t argc, const char** argv )
 			cl::print_line( filePath );
 
 			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter
-				.write_to_file( entry->bitmap_left(), entry->get_id(), entry->get_framerate() );
-			tiffWriter
-				.write_to_file( entry->bitmap_right(), entry->get_id(), entry->get_framerate() );
+			tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
+									  entry->get_framerate() );
+			tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
+									  entry->get_framerate() );
 
 			vm::rgb_to_grey( entry->bitmap_left(), *grayL );
 			vm::rgb_to_grey( entry->bitmap_right(), *grayR );
