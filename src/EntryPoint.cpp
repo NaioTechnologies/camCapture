@@ -180,8 +180,8 @@ EntryPoint::run( int32_t argc, const char** argv )
 		stereoBench.read_bench_params( intrinsicsL, intrinsicsR, extrinsics );
 
 		std::string dateStr{ };
-		CLDate date;
-		date.GetDateAndTimeMIMEFormat( dateStr );
+		cl::Date date;
+		date.get_date_and_time_mime( dateStr );
 		cl::filesystem::folder_create( dateStr );
 
 		cl::print_line( "Recording session in: ", dateStr );
