@@ -21,6 +21,7 @@
 #include "BuildVersion.hpp"
 #include "EntryPoint.hpp"
 
+#include "IO/IOStereoRigCalibration.hpp"
 #include <IO/IOBlueFoxStereo.hpp>
 #include <IO/IOJsonReader.hpp>
 #include "IO/IOTiffWriter.hpp"
@@ -153,31 +154,34 @@ EntryPoint::run( int32_t argc, const char** argv )
 		jsonReader.load( resourceFolder.append( "config.json" ) );
 		const io::JsonElement benchConfig = jsonReader.get_root().get( "stereobench" );
 
-		const uint32_t width = benchConfig.as_uint32( "width", 752 );
-		const uint32_t height = benchConfig.as_uint32( "height", 480 );
-		const uint32_t exposure = benchConfig.as_uint32( "exposure", 10000 );
-		const uint32_t greyLevelTarget = benchConfig.as_uint32( "average_gray_value", 70 );
-		const bool autoexp = benchConfig.as_bool( "auto_exposure", false );
-		const uint32_t minExposure = benchConfig.as_uint32( "exposure_min", 12 );
-		const uint32_t maxExposure = benchConfig.as_uint32( "exposure_max", 20000 );
-		const bool hdr = benchConfig.as_bool( "hdr", false );
-
-		cl::ignore( exposure, autoexp );
-
-
-		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
-
 		io::BlueFoxStereo stereoBench;
+		io::MVBlueFox::Params stereoRigParams;
+
+		stereoRigParams.width = benchConfig.as_uint32( "width", 752 );
+		stereoRigParams.height = benchConfig.as_uint32( "height", 480 );
+		stereoRigParams.exposure = benchConfig.as_uint32( "exposure", 20000 );
+		stereoRigParams.autoExposure = benchConfig.as_bool( "auto_exposure", false );
+		stereoRigParams.exposureMax = benchConfig.as_uint32( "exposure_max", 20000 );
+		stereoRigParams.exposureMin = benchConfig.as_uint32( "exposure_min", 12 );
+		stereoRigParams.hdrEnabled = benchConfig.as_bool( "hdr", true );
+		stereoRigParams.periodInUs = 45000;
+
+		cv::Size size( static_cast<int32_t>(stereoRigParams.width),
+					   static_cast<int32_t>(stereoRigParams.height) );
 
 		io::CameraInfo infoL = stereoBench.get_camera_info( io::BlueFoxStereo::Position::Left );
 		io::CameraInfo infoR = stereoBench.get_camera_info( io::BlueFoxStereo::Position::Right );
-		io::Intrinsics intrinsicsL, intrinsicsR;
-		io::Extrinsics extrinsics;
+
 		uint32_t serialNumL = cl::str_to_uint32( infoL.serialNum );
 		uint32_t serialNumR = cl::str_to_uint32( infoR.serialNum );
 		uint8_t mode{ 0x01 };
 
-		stereoBench.read_bench_params( intrinsicsL, intrinsicsR, extrinsics );
+		io::StereoRigCalibration params;
+		params.read_from_stereo_rig( stereoBench );
+
+		io::Intrinsics intrinsicsL = params.get_intrinsics_left();
+		io::Intrinsics intrinsicsR = params.get_intrinsics_right();
+		io::Extrinsics extrinsics = params.get_extrinsics();
 
 		std::string dateStr{ };
 		cl::Date date;
@@ -189,8 +193,6 @@ EntryPoint::run( int32_t argc, const char** argv )
 		size_t allParamSize = sizeof( mode ) + sizeof( serialNumL ) + sizeof( io::Intrinsics ) +
 		                      sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
 		                      sizeof( io::Extrinsics );
-
-		cl::print_line( greyLevelTarget );
 
 		io::BufferWriter bufferWriter( allParamSize );
 
@@ -211,12 +213,12 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		io::write_buffer_to_file( filePathP, bufferWriter.get_buffer() );
 
-		stereoBench.start( ht::ColorSpace::RGB, width, height, minExposure, maxExposure, hdr );
+		stereoBench.start( stereoRigParams );
 
 		control::Pid pid;
 		pid.set_pid_gains( 1, 0, 0 );
 
-		int32_t currentExposure{ static_cast<int32_t>(maxExposure) };
+		int32_t currentExposure{ static_cast<int32_t>(stereoRigParams.exposureMin) };
 
 		size_t nbr{ };
 		int8_t pressed{ };
@@ -255,7 +257,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 			double greyLevelR = vm::mean( *grayR );
 
 			const double greyLevel = ( greyLevelL + greyLevelR ) / 2;
-			const int32_t greyLevelDiff = static_cast<int32_t>(greyLevelTarget) - greyLevel;
+			const int32_t greyLevelDiff = 70 - greyLevel;
 
 			const int32_t correctedExposureError =
 				static_cast<int32_t>(std::round(
@@ -263,13 +265,13 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 			currentExposure += correctedExposureError;
 
-			if( currentExposure < 12 )
+			if( currentExposure < static_cast<int32_t>(stereoRigParams.exposureMin) )
 			{
-				currentExposure = 12;
+				currentExposure = static_cast<int32_t>(stereoRigParams.exposureMin);
 			}
-			else if( currentExposure > 20000 )
+			else if( currentExposure > static_cast<int32_t>(stereoRigParams.exposureMax) )
 			{
-				currentExposure = 20000;
+				currentExposure = static_cast<int32_t>(stereoRigParams.exposureMax);
 			}
 
 			stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
