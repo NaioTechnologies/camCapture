@@ -22,7 +22,7 @@
 #include "EntryPoint.hpp"
 
 #include <IO/IOBlueFoxStereo.hpp>
-#include <IO/JsonReader.hpp>
+#include <IO/IOJsonReader.hpp>
 #include "IO/IOTiffWriter.hpp"
 #include "IO/IOBufferWriter.hpp"
 #include "IO/IOFileWriter.hpp"
@@ -151,19 +151,19 @@ EntryPoint::run( int32_t argc, const char** argv )
 
 		io::JsonReader jsonReader;
 		jsonReader.load( resourceFolder.append( "config.json" ) );
-		Json::Value benchConfig( jsonReader.root()["stereobench"] );
+		const io::JsonElement benchConfig = jsonReader.get_root().get( "stereobench" );
 
-		const uint32_t width = benchConfig.get( "width", 752 ).asUInt();
-		const uint32_t height = benchConfig.get( "height", 480 ).asUInt();
-		const uint32_t exposure = benchConfig.get( "exposure", 10000 ).asUInt();
-		const uint32_t greyLevelTarget = benchConfig.get( "average_gray_value", 70 ).asUInt();
-		const bool autoexp = benchConfig.get( "auto_exposure", false ).asBool();
-		const uint32_t minExposure = benchConfig.get( "exposure_min", 12 ).asUInt();
-		const uint32_t maxExposure = benchConfig.get( "exposure_max", 20000 ).asUInt();
+		const uint32_t width = benchConfig.as_uint32( "width", 752 );
+		const uint32_t height = benchConfig.as_uint32( "height", 480 );
+		const uint32_t exposure = benchConfig.as_uint32( "exposure", 10000 );
+		const uint32_t greyLevelTarget = benchConfig.as_uint32( "average_gray_value", 70 );
+		const bool autoexp = benchConfig.as_bool( "auto_exposure", false );
+		const uint32_t minExposure = benchConfig.as_uint32( "exposure_min", 12 );
+		const uint32_t maxExposure = benchConfig.as_uint32( "exposure_max", 20000 );
+		const bool hdr = benchConfig.as_bool( "hdr", false );
 
 		cl::ignore( exposure, autoexp );
 
-		const bool hdr = benchConfig.get( "hdr", false ).asBool();
 
 		cv::Size size( static_cast<int32_t>(width), static_cast<int32_t>(height) );
 
@@ -190,6 +190,8 @@ EntryPoint::run( int32_t argc, const char** argv )
 		                      sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
 		                      sizeof( io::Extrinsics );
 
+		cl::print_line( greyLevelTarget );
+
 		io::BufferWriter bufferWriter( allParamSize );
 
 		bufferWriter.write( mode );
@@ -212,7 +214,7 @@ EntryPoint::run( int32_t argc, const char** argv )
 		stereoBench.start( ht::ColorSpace::RGB, width, height, minExposure, maxExposure, hdr );
 
 		control::Pid pid;
-		pid.set_pid_gains( 3, 0, 0 );
+		pid.set_pid_gains( 1, 0, 0 );
 
 		int32_t currentExposure{ static_cast<int32_t>(maxExposure) };
 
@@ -249,11 +251,8 @@ EntryPoint::run( int32_t argc, const char** argv )
 			vm::rgb_to_grey( entry->bitmap_left(), *grayL );
 			vm::rgb_to_grey( entry->bitmap_right(), *grayR );
 
-			double greyLevelL{ };
-			double greyLevelR{ };
-
-			vm::mean( *grayL, greyLevelL );
-			vm::mean( *grayR, greyLevelR );
+			double greyLevelL = vm::mean( *grayL );
+			double greyLevelR = vm::mean( *grayR );
 
 			const double greyLevel = ( greyLevelL + greyLevelR ) / 2;
 			const int32_t greyLevelDiff = static_cast<int32_t>(greyLevelTarget) - greyLevel;

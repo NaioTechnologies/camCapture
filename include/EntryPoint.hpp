@@ -23,7 +23,7 @@
 
 #include "HTCmdLineParser.h"
 #include "HTLogger.h"
-#include "HTSignalHandler.h"
+#include "HTSignalHandler.hpp"
 #include <string>
 
 

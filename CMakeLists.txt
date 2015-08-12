@@ -187,6 +187,7 @@ target_include_directories( ${PROJECT_NAME} SYSTEM PUBLIC
 	${OpenCV_INCLUDE_DIRS}
 	${MVIMPACT_INCLUDE_DIRS}
 	${JSONCPP_INCLUDE_DIRS}
+/opt/intel/composer_xe_2015.1.133/ipp/include/
 )
 
 
@@ -209,6 +210,10 @@ target_link_libraries( ${PROJECT_NAME}
 	-lGLEW
 	-lSOIL
 	-lGL
+
+	/opt/intel/ipp/lib/intel64/libippi.so
+	/opt/intel/ipp/lib/intel64/libippcore.so
+	/opt/intel/ipp/lib/intel64/libippcc.so
 )
 
 if( CMAKE_BUILD_TYPE STREQUAL "Debug" )
