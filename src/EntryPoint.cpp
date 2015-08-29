@@ -21,23 +21,19 @@
 #include "BuildVersion.hpp"
 #include "EntryPoint.hpp"
 
+#include "BaseFilters/BFDemosaicingFilter.hpp"
+#include "BaseFilters/BFExposureFilter.hpp"
+#include "BaseFilters/BFRectificationFilter.hpp"
+
+#include "IO/IOFileWriter.hpp"
 #include "IO/IOStereoRigCalibration.hpp"
-#include <IO/IOBlueFoxStereo.hpp>
 #include <IO/IOJsonReader.hpp>
 #include "IO/IOTiffWriter.hpp"
 #include "IO/IOBufferWriter.hpp"
-#include "IO/IOFileWriter.hpp"
-#include "Control/CTPid.hpp"
-#include "VisionModule/VMConversion.hpp"
-#include "VisionModule/VMStatistics.hpp"
 
 #include "HTUtility.h"
 #include "HTBitmap.hpp"
 #include "CLFileSystem.h"
-
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
 
 //==================================================================================================
 // C O N S T A N T S   &   L O C A L   V A R I A B L E S
@@ -154,34 +150,29 @@ EntryPoint::run( int32_t argc, const char** argv )
 		jsonReader.load( resourceFolder.append( "config.json" ) );
 		const io::JsonElement benchConfig = jsonReader.get_root().get( "stereobench" );
 
-		io::BlueFoxStereo stereoBench;
-		io::MVBlueFox::Params stereoRigParams;
+		io::BlueFox::Params blueFoxParams;
+		blueFoxParams.colorSpace = ht::ColorSpace::RAW;
+		blueFoxParams.width = 752;
+		blueFoxParams.height = 480;
+		blueFoxParams.exposure = 20000;
+		blueFoxParams.autoExposure = false;
+		blueFoxParams.exposureMax = 20000;
+		blueFoxParams.exposureMin = 12;
+		blueFoxParams.hdrEnabled = true;
+		blueFoxParams.periodInUs = 45000;
 
-		stereoRigParams.width = benchConfig.as_uint32( "width", 752 );
-		stereoRigParams.height = benchConfig.as_uint32( "height", 480 );
-		stereoRigParams.exposure = benchConfig.as_uint32( "exposure", 20000 );
-		stereoRigParams.autoExposure = benchConfig.as_bool( "auto_exposure", false );
-		stereoRigParams.exposureMax = benchConfig.as_uint32( "exposure_max", 20000 );
-		stereoRigParams.exposureMin = benchConfig.as_uint32( "exposure_min", 12 );
-		stereoRigParams.hdrEnabled = benchConfig.as_bool( "hdr", true );
-		stereoRigParams.periodInUs = 45000;
+		im::BlueFoxImporterUPtr importer = im::unique_bluefox_importer( blueFoxParams );
 
-		cv::Size size( static_cast<int32_t>(stereoRigParams.width),
-					   static_cast<int32_t>(stereoRigParams.height) );
+		io::StereoRigCalibration calibrationParams;
+		calibrationParams.read_from_stereo_rig( *importer );
 
-		io::CameraInfo infoL = stereoBench.get_camera_info( io::BlueFoxStereo::Position::Left );
-		io::CameraInfo infoR = stereoBench.get_camera_info( io::BlueFoxStereo::Position::Right );
+		io::Intrinsics intrinsicsL = calibrationParams.get_intrinsics_left();
+		io::Intrinsics intrinsicsR = calibrationParams.get_intrinsics_left();
+		io::Extrinsics extrinsics = calibrationParams.get_extrinsics();
 
-		uint32_t serialNumL = cl::str_to_uint32( infoL.serialNum );
-		uint32_t serialNumR = cl::str_to_uint32( infoR.serialNum );
-		uint8_t mode{ 0x01 };
-
-		io::StereoRigCalibration params;
-		params.read_from_stereo_rig( stereoBench );
-
-		io::Intrinsics intrinsicsL = params.get_intrinsics_left();
-		io::Intrinsics intrinsicsR = params.get_intrinsics_right();
-		io::Extrinsics extrinsics = params.get_extrinsics();
+		uint32_t serialNumL = cl::str_to_uint32( importer->get_camera_left().get_serial_number() );
+		uint32_t serialNumR = cl::str_to_uint32( importer->get_camera_right().get_serial_number() );
+		uint8_t mode{ 0x00 };
 
 		std::string dateStr{ };
 		cl::Date date;
@@ -191,115 +182,193 @@ EntryPoint::run( int32_t argc, const char** argv )
 		cl::print_line( "Recording session in: ", dateStr );
 
 		size_t allParamSize = sizeof( mode ) + sizeof( serialNumL ) + sizeof( io::Intrinsics ) +
-		                      sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
-		                      sizeof( io::Extrinsics );
+			sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
+			sizeof( io::Extrinsics );
 
 		io::BufferWriter bufferWriter( allParamSize );
 
 		bufferWriter.write( mode );
 
-		bufferWriter.write( serialNumL );
-		io::IntrinsicsArray intrinsicsArrayL = intrinsicsL.to_array();
-		bufferWriter.write_array( intrinsicsArrayL.data(), intrinsicsArrayL.size() );
-
-		bufferWriter.write( serialNumR );
-		io::IntrinsicsArray intrinsicsArrayR = intrinsicsR.to_array();
-		bufferWriter.write_array( intrinsicsArrayR.data(), intrinsicsArrayR.size() );
-
-		io::ExtrinsicsArray extrinsicsArray = extrinsics.to_array();
-		bufferWriter.write_array( extrinsicsArray.data(), extrinsicsArray.size() );
+		//bufferWriter.write( serialNumL );
+		//io::IntrinsicsArray intrinsicsArrayL = intrinsicsL.to_array();
+		//bufferWriter.write_array( intrinsicsArrayL.data(), intrinsicsArrayL.size() );
+		//
+		//bufferWriter.write( serialNumR );
+		//io::IntrinsicsArray intrinsicsArrayR = intrinsicsR.to_array();
+		//bufferWriter.write_array( intrinsicsArrayR.data(), intrinsicsArrayR.size() );
+		//
+		//io::ExtrinsicsArray extrinsicsArray = extrinsics.to_array();
+		//bufferWriter.write_array( extrinsicsArray.data(), extrinsicsArray.size() );
 
 		const std::string filePathP = cl::filesystem::create_filespec( dateStr, "capture", "bin" );
 
 		io::write_buffer_to_file( filePathP, bufferWriter.get_buffer() );
 
-		stereoBench.start( stereoRigParams );
+		vm::Size size{ blueFoxParams.width, blueFoxParams.height };
+		cl::Rect2u32 roi{ 0, 0, size.width(), size.height() };
+		co::OutputMetrics om{ size, roi };
 
-		control::Pid pid;
-		pid.set_pid_gains( 1, 0, 0 );
+		FileOutput output( dateStr );
+		this->add_output( output );
 
-		int32_t currentExposure{ static_cast<int32_t>(stereoRigParams.exposureMin) };
+		bf::DemosaicingFilter demosaicingFilter;
+		demosaicingFilter.prepare_filter( om );
+		this->add_output( demosaicingFilter );
+
+		bf::RectificationFilter rectFilter( calibrationParams );
+		rectFilter.prepare_filter( om );
+		demosaicingFilter.add_output( rectFilter );
+
+		bf::ExposureFilter exposureFilter;
+		exposureFilter.prepare_filter( om );
+		rectFilter.add_output( exposureFilter );
+
+		cm::BitmapCache bitmapCache;
+		importer->start_async_read( bitmapCache );
 
 		size_t nbr{ };
 		int8_t pressed{ };
+
 		while( !is_signaled() && pressed != 27 )
 		{
-			cm::BitmapPairEntryUniquePtr entry;
-			stereoBench.wait_entry( entry );
-
-			stereoBench.clear_entry_buffer();
-
-			ht::BitmapUPtr grayL = ht::unique_bitmap( entry->bitmap_left().width(),
-			                                          entry->bitmap_left().height(),
-			                                          entry->bitmap_left().bit_depth(),
-			                                          ht::ColorSpace::Grayscale );
-
-			ht::BitmapUPtr grayR = ht::unique_bitmap( entry->bitmap_left().width(),
-			                                          entry->bitmap_left().height(),
-			                                          entry->bitmap_left().bit_depth(),
-			                                          ht::ColorSpace::Grayscale );
-
-			std::string filePath = cl::filesystem::create_filespec(
-				dateStr, std::to_string( entry->get_id() ), io::tiff_file_extensions()[1] );
-
-			cl::print_line( filePath );
-
-			io::TiffWriter tiffWriter{ filePath };
-			tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
-									  entry->get_framerate() );
-			tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
-									  entry->get_framerate() );
-
-			vm::rgb_to_grey( entry->bitmap_left(), *grayL );
-			vm::rgb_to_grey( entry->bitmap_right(), *grayR );
-
-			double greyLevelL = vm::mean( *grayL );
-			double greyLevelR = vm::mean( *grayR );
-
-			const double greyLevel = ( greyLevelL + greyLevelR ) / 2;
-			const int32_t greyLevelDiff = 70 - greyLevel;
-
-			const int32_t correctedExposureError =
-				static_cast<int32_t>(std::round(
-					pid.compute_correction( static_cast<double>(greyLevelDiff) ) ));
-
-			currentExposure += correctedExposureError;
-
-			if( currentExposure < static_cast<int32_t>(stereoRigParams.exposureMin) )
+			if( bitmapCache.wait_for_new_entry( 0 ) )
 			{
-				currentExposure = static_cast<int32_t>(stereoRigParams.exposureMin);
+				cm::BitmapPairEntrySPtr entry{ };
+				bool status = bitmapCache.pop_newest_entry( entry );
+				if( status )
+				{
+					co::OutputMetrics om{ size, roi };
+					co::OutputResult result{ om };
+					co::ParamContext ctx( bitmapCache );
+
+					result.add_cache_entries( entry->get_cache_id(), entry );
+					result.start_benchmark();
+
+					if( compute_result( ctx, result ) )
+					{
+						result.stop_benchmark();
+						cl::print_line_sp( "VisualCortex successfully updated" );
+						result.print_benchmark( "" );
+						cl::print_line();
+
+						importer
+							->set_exposure_overshoot( exposureFilter.get_greylevel_overshoot() );
+					}
+					else
+					{
+						result.stop_benchmark();
+						cl::print_line_sp( "VisualCortex update failed" );
+						result.print_benchmark( "" );
+						cl::print_line();
+					}
+				}
 			}
-			else if( currentExposure > static_cast<int32_t>(stereoRigParams.exposureMax) )
-			{
-				currentExposure = static_cast<int32_t>(stereoRigParams.exposureMax);
-			}
-
-			stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
-
-			cv::Mat matL = cv::Mat( size, CV_8UC3 );
-			cv::Mat matR = cv::Mat( size, CV_8UC3 );
-
-			matL.data = entry->bitmap_left().data();
-			matR.data = entry->bitmap_right().data();
-
-			cv::Mat combine( std::max( matL.size().height, matR.size().height ),
-			                 matL.size().width + matR.size().width, CV_8UC3 );
-
-			cv::Mat left_roi( combine, cv::Rect( 0, 0, matL.size().width, matL.size().height ) );
-			matL.copyTo( left_roi );
-
-			cv::Mat right_roi( combine, cv::Rect( matL.size().width, 0, matR.size().width,
-			                                      matR.size().height ) );
-			matR.copyTo( right_roi );
-
-			cv::imshow( "images", combine );
-
-			pressed = static_cast<int8_t>( cv::waitKey( 1 ) );
 		}
-		stereoBench.stop();
+		//	cm::BitmapPairEntryUPtr entry;
+		//	if( stereoBench.wait_entry( entry ) )
+		//	{
+		//		stereoBench.clear_entry_buffer();
+		//
+		//		ht::BitmapUPtr grayL = ht::unique_bitmap( entry->bitmap_left().width(),
+		//												  entry->bitmap_left().height(),
+		//												  entry->bitmap_left().bit_depth(),
+		//												  ht::ColorSpace::Grayscale );
+		//
+		//		ht::BitmapUPtr grayR = ht::unique_bitmap( entry->bitmap_left().width(),
+		//												  entry->bitmap_left().height(),
+		//												  entry->bitmap_left().bit_depth(),
+		//												  ht::ColorSpace::Grayscale );
+		//
+		//		std::string filePath = cl::filesystem::create_filespec(
+		//			dateStr, std::to_string( entry->get_id() ), io::tiff_file_extensions()[1] );
+		//
+		//		//cl::print_line( filePath );
+		//		//io::TiffWriter tiffWriter{ filePath };
+		//		//tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
+		//		//						  entry->get_framerate() );
+		//		//tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
+		//		//						  entry->get_framerate() );
+		//
+		//		vm::rgb_to_grey( entry->bitmap_left(), *grayL );
+		//		vm::rgb_to_grey( entry->bitmap_right(), *grayR );
+		//
+		//		double greyLevelL = vm::mean( *grayL );
+		//		double greyLevelR = vm::mean( *grayR );
+		//
+		//		const double greyLevel = (greyLevelL + greyLevelR) / 2;
+		//		const int32_t greyLevelDiff = 70 - greyLevel;
+		//
+		//		const int32_t correctedExposureError =
+		//			static_cast<int32_t>(std::round(
+		//				pid.compute_correction( static_cast<double>(greyLevelDiff) ) ));
+		//
+		//		currentExposure += correctedExposureError;
+		//
+		//		if( currentExposure < static_cast<int32_t>(stereoRigParams.exposureMin) )
+		//		{
+		//			currentExposure = static_cast<int32_t>(stereoRigParams.exposureMin);
+		//		}
+		//		else if( currentExposure > static_cast<int32_t>(stereoRigParams.exposureMax) )
+		//		{
+		//			currentExposure = static_cast<int32_t>(stereoRigParams.exposureMax);
+		//		}
+		//
+		//		stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
+		//
+		//		cv::Mat matL = cv::Mat( size, CV_8UC3 );
+		//		cv::Mat matR = cv::Mat( size, CV_8UC3 );
+		//
+		//		matL.data = entry->bitmap_left().data();
+		//		matR.data = entry->bitmap_right().data();
+		//
+		//		cv::Mat combine( std::max( matL.size().height, matR.size().height ),
+		//						 matL.size().width + matR.size().width, CV_8UC3 );
+		//
+		//		cv::Mat
+		//			left_roi( combine, cv::Rect( 0, 0, matL.size().width, matL.size().height ) );
+		//		matL.copyTo( left_roi );
+		//
+		//		cv::Mat right_roi( combine, cv::Rect( matL.size().width, 0, matR.size().width,
+		//											  matR.size().height ) );
+		//		matR.copyTo( right_roi );
+		//
+		//		cv::imshow( "images", combine );
+		//
+		//		pressed = static_cast<int8_t>( cv::waitKey( 10 ) );
+		//	}
+		//}
+		importer->stop_async_read();
+		importer->close();
 	}
 
 	return res;
+}
+
+//--------------------------------------------------------------------------------------------------
+//
+bool
+EntryPoint::compute_result( co::ParamContext& context, const co::OutputResult& result )
+{
+	for( auto& iter : get_output_list() )
+	{
+		if( iter )
+		{
+			if( !iter->compute_result( context, result ) )
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+//
+bool
+EntryPoint::query_output_metrics( co::OutputMetrics& om )
+{
+	cl::ignore( om );
+	return true;
 }
 
 
