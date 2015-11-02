@@ -26,7 +26,7 @@
 #include "BaseFilters/BFRectificationFilter.hpp"
 
 #include "IO/IOFileWriter.hpp"
-#include "IO/IOStereoRigCalibration.hpp"
+#include "IO/IOBlueFoxStereoCalib.hpp"
 #include <IO/IOJsonReader.hpp>
 #include "IO/IOTiffWriter.hpp"
 #include "IO/IOBufferWriter.hpp"
@@ -161,48 +161,17 @@ EntryPoint::run( int32_t argc, const char** argv )
 		blueFoxParams.hdrEnabled = true;
 		blueFoxParams.periodInUs = 45000;
 
-		im::BlueFoxImporterUPtr importer = im::unique_bluefox_importer( blueFoxParams );
-
-		io::StereoRigCalibration calibrationParams;
-		calibrationParams.read_from_stereo_rig( *importer );
-
-		io::Intrinsics intrinsicsL = calibrationParams.get_intrinsics_left();
-		io::Intrinsics intrinsicsR = calibrationParams.get_intrinsics_left();
-		io::Extrinsics extrinsics = calibrationParams.get_extrinsics();
-
-		uint32_t serialNumL = cl::str_to_uint32( importer->get_camera_left().get_serial_number() );
-		uint32_t serialNumR = cl::str_to_uint32( importer->get_camera_right().get_serial_number() );
-		uint8_t mode{ 0x00 };
-
 		std::string dateStr{ };
 		cl::Date date;
 		date.get_date_and_time_mime( dateStr );
 		cl::filesystem::folder_create( dateStr );
 
-		cl::print_line( "Recording session in: ", dateStr );
+		im::BlueFoxStereoImporterUPtr
+			importer = im::unique_bluefox_stereo_importer( blueFoxParams );
 
-		size_t allParamSize = sizeof( mode ) + sizeof( serialNumL ) + sizeof( io::Intrinsics ) +
-			sizeof( serialNumR ) + sizeof( io::Intrinsics ) +
-			sizeof( io::Extrinsics );
-
-		io::BufferWriter bufferWriter( allParamSize );
-
-		bufferWriter.write( mode );
-
-		//bufferWriter.write( serialNumL );
-		//io::IntrinsicsArray intrinsicsArrayL = intrinsicsL.to_array();
-		//bufferWriter.write_array( intrinsicsArrayL.data(), intrinsicsArrayL.size() );
-		//
-		//bufferWriter.write( serialNumR );
-		//io::IntrinsicsArray intrinsicsArrayR = intrinsicsR.to_array();
-		//bufferWriter.write_array( intrinsicsArrayR.data(), intrinsicsArrayR.size() );
-		//
-		//io::ExtrinsicsArray extrinsicsArray = extrinsics.to_array();
-		//bufferWriter.write_array( extrinsicsArray.data(), extrinsicsArray.size() );
-
-		const std::string filePathP = cl::filesystem::create_filespec( dateStr, "capture", "bin" );
-
-		io::write_buffer_to_file( filePathP, bufferWriter.get_buffer() );
+		io::BlueFoxStereoCalib calibrationParams;
+		calibrationParams.load_from_stereo_rig( *importer );
+		calibrationParams.save_to_file( dateStr, "capture" );
 
 		vm::Size size{ blueFoxParams.width, blueFoxParams.height };
 		cl::Rect2u32 roi{ 0, 0, size.width(), size.height() };
@@ -215,18 +184,14 @@ EntryPoint::run( int32_t argc, const char** argv )
 		demosaicingFilter.prepare_filter( om );
 		this->add_output( demosaicingFilter );
 
-		bf::RectificationFilter rectFilter( calibrationParams );
-		rectFilter.prepare_filter( om );
-		demosaicingFilter.add_output( rectFilter );
-
 		bf::ExposureFilter exposureFilter;
 		exposureFilter.prepare_filter( om );
-		rectFilter.add_output( exposureFilter );
+		demosaicingFilter.add_output( exposureFilter );
 
 		cm::BitmapCache bitmapCache;
+		importer->open( "" );
 		importer->start_async_read( bitmapCache );
 
-		size_t nbr{ };
 		int8_t pressed{ };
 
 		while( !is_signaled() && pressed != 27 )
@@ -237,7 +202,6 @@ EntryPoint::run( int32_t argc, const char** argv )
 				bool status = bitmapCache.pop_newest_entry( entry );
 				if( status )
 				{
-					co::OutputMetrics om{ size, roi };
 					co::OutputResult result{ om };
 					co::ParamContext ctx( bitmapCache );
 
@@ -247,96 +211,23 @@ EntryPoint::run( int32_t argc, const char** argv )
 					if( compute_result( ctx, result ) )
 					{
 						result.stop_benchmark();
-						cl::print_line_sp( "VisualCortex successfully updated" );
-						result.print_benchmark( "" );
-						cl::print_line();
+						//cl::print_line_sp( "VisualCortex successfully updated" );
+						//result.print_benchmark( "" );
+						//cl::print_line();
 
-						importer
-							->set_exposure_overshoot( exposureFilter.get_greylevel_overshoot() );
+						importer->set_exposure_overshoot( exposureFilter.get_greylevel_diff() );
 					}
 					else
 					{
-						result.stop_benchmark();
-						cl::print_line_sp( "VisualCortex update failed" );
-						result.print_benchmark( "" );
-						cl::print_line();
+						//result.stop_benchmark();
+						//cl::print_line_sp( "VisualCortex update failed" );
+						//result.print_benchmark( "" );
+						//cl::print_line();
 					}
 				}
 			}
 		}
-		//	cm::BitmapPairEntryUPtr entry;
-		//	if( stereoBench.wait_entry( entry ) )
-		//	{
-		//		stereoBench.clear_entry_buffer();
-		//
-		//		ht::BitmapUPtr grayL = ht::unique_bitmap( entry->bitmap_left().width(),
-		//												  entry->bitmap_left().height(),
-		//												  entry->bitmap_left().bit_depth(),
-		//												  ht::ColorSpace::Grayscale );
-		//
-		//		ht::BitmapUPtr grayR = ht::unique_bitmap( entry->bitmap_left().width(),
-		//												  entry->bitmap_left().height(),
-		//												  entry->bitmap_left().bit_depth(),
-		//												  ht::ColorSpace::Grayscale );
-		//
-		//		std::string filePath = cl::filesystem::create_filespec(
-		//			dateStr, std::to_string( entry->get_id() ), io::tiff_file_extensions()[1] );
-		//
-		//		//cl::print_line( filePath );
-		//		//io::TiffWriter tiffWriter{ filePath };
-		//		//tiffWriter.write_to_file( entry->bitmap_left(), entry->get_id(),
-		//		//						  entry->get_framerate() );
-		//		//tiffWriter.write_to_file( entry->bitmap_right(), entry->get_id(),
-		//		//						  entry->get_framerate() );
-		//
-		//		vm::rgb_to_grey( entry->bitmap_left(), *grayL );
-		//		vm::rgb_to_grey( entry->bitmap_right(), *grayR );
-		//
-		//		double greyLevelL = vm::mean( *grayL );
-		//		double greyLevelR = vm::mean( *grayR );
-		//
-		//		const double greyLevel = (greyLevelL + greyLevelR) / 2;
-		//		const int32_t greyLevelDiff = 70 - greyLevel;
-		//
-		//		const int32_t correctedExposureError =
-		//			static_cast<int32_t>(std::round(
-		//				pid.compute_correction( static_cast<double>(greyLevelDiff) ) ));
-		//
-		//		currentExposure += correctedExposureError;
-		//
-		//		if( currentExposure < static_cast<int32_t>(stereoRigParams.exposureMin) )
-		//		{
-		//			currentExposure = static_cast<int32_t>(stereoRigParams.exposureMin);
-		//		}
-		//		else if( currentExposure > static_cast<int32_t>(stereoRigParams.exposureMax) )
-		//		{
-		//			currentExposure = static_cast<int32_t>(stereoRigParams.exposureMax);
-		//		}
-		//
-		//		stereoBench.set_exposure( static_cast<uint32_t>(currentExposure) );
-		//
-		//		cv::Mat matL = cv::Mat( size, CV_8UC3 );
-		//		cv::Mat matR = cv::Mat( size, CV_8UC3 );
-		//
-		//		matL.data = entry->bitmap_left().data();
-		//		matR.data = entry->bitmap_right().data();
-		//
-		//		cv::Mat combine( std::max( matL.size().height, matR.size().height ),
-		//						 matL.size().width + matR.size().width, CV_8UC3 );
-		//
-		//		cv::Mat
-		//			left_roi( combine, cv::Rect( 0, 0, matL.size().width, matL.size().height ) );
-		//		matL.copyTo( left_roi );
-		//
-		//		cv::Mat right_roi( combine, cv::Rect( matL.size().width, 0, matR.size().width,
-		//											  matR.size().height ) );
-		//		matR.copyTo( right_roi );
-		//
-		//		cv::imshow( "images", combine );
-		//
-		//		pressed = static_cast<int8_t>( cv::waitKey( 10 ) );
-		//	}
-		//}
+
 		importer->stop_async_read();
 		importer->close();
 	}
@@ -371,6 +262,15 @@ EntryPoint::query_output_metrics( co::OutputMetrics& om )
 	return true;
 }
 
+//--------------------------------------------------------------------------------------------------
+//
+bool
+EntryPoint::query_output_format( co::OutputFormat& of )
+{
+	cl::ignore( of );
+	return true;
+}
+
 
 //--------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------
@@ -389,22 +289,22 @@ main( int32_t argc, const char** argv )
 	}
 	catch( const cl::SystemError& e )
 	{
-		ht::log_fatal( "System Error: ", e.what(), e.where() );
+		cl::print_line( "System Error: ", e.what(), e.where() );
 		throw;
 	}
 	catch( const cl::BaseException& e )
 	{
-		ht::log_fatal( "BaseException caught: ", e.what() );
+		cl::print_line( "BaseException caught: ", e.what() );
 		throw;
 	}
 	catch( const std::exception& e )
 	{
-		ht::log_fatal( "std::exception caught: ", e.what() );
+		cl::print_line( "std::exception caught: ", e.what() );
 		throw;
 	}
 	catch( ... )
 	{
-		ht::log_fatal( "Caught an exception of an undetermined type" );
+		cl::print_line( "Caught an exception of an undetermined type" );
 		throw;
 	}
 

@@ -133,6 +133,22 @@ add_definitions(
 	-fPIE
 )
 
+#--------------------------------------------------------------------------------------------------
+#
+#	Compilers specifig options
+#
+if( USE_CLANG )
+	set( CMAKE_C_COMPILER "/usr/bin/clang" )
+	set( CMAKE_CXX_COMPILER "/usr/bin/clang++" )
+	add_definitions(
+			# -stdlib=libc++
+			-Wno-c++98-compat
+			-Wno-c++11-compat
+	)
+else()
+	set( CMAKE_C_COMPILER "/usr/bin/gcc-4.9" )
+	set( CMAKE_CXX_COMPILER "/usr/bin/g++-4.9" )
+endif()
 
 #--------------------------------------------------------------------------------------------------
 #
@@ -160,13 +176,19 @@ endif()
 #   Add builds definitions
 #
 if( CMAKE_BUILD_TYPE STREQUAL "Debug" )
-	add_definitions( -O1 -DDEBUG -g )
+	add_definitions( -DDEBUG -g )
 elseif( CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" )
-	add_definitions( -O3 -DDEBUG -march=native -msse -msse2 -msse3 -mssse3 -msse4.1 -msse4.2 )
+	add_definitions( -O3 -DDEBUG
+			-march=native
+			-msse -msse2 -msse3 -mssse3 -msse4.1 -msse4.2
+			-ffast-math -ftree-loop-if-convert -funroll-loops -mfpmath=sse )
 elseif( CMAKE_BUILD_TYPE STREQUAL "Release" )
-	add_definitions( -O3 -march=atom -msse -msse2 -mssse3 -msse4.1 -msse4.2 -ffast-math -ftree-loop-if-convert -funroll-loops -mfpmath=sse )
+	add_definitions( -O3
+			#			-march=native
+			#			-msse -msse2 -mssse3 -msse4.1 -msse4.2
+			#			-ffast-math -ftree-loop-if-convert -funroll-loops -mfpmath=sse
+			)
 endif()
-
 #--------------------------------------------------------------------------------------------------
 #
 #   Executable creation
@@ -179,16 +201,16 @@ add_executable( ${PROJECT_NAME} ${EXECUTABLE_SOURCES} )
 #   Library includes
 #
 target_include_directories( ${PROJECT_NAME} SYSTEM PUBLIC
-	${VITALS_INCLUDE_DIRS}
-	${LOKI_INCLUDE_DIRS}
-	${TIFF_INCLUDE_DIRS}
-	${JPEG_INCLUDE_DIRS}
-	${ROBBIE_INCLUDE_DIRS}
-	${OpenCV_INCLUDE_DIRS}
-	${MVIMPACT_INCLUDE_DIRS}
-	${JSONCPP_INCLUDE_DIRS}
-/opt/intel/composer_xe_2015.1.133/ipp/include/
-)
+		${VITALS_INCLUDE_DIRS}
+		${LOKI_INCLUDE_DIRS}
+		${TIFF_INCLUDE_DIRS}
+		${JPEG_INCLUDE_DIRS}
+		${ROBBIE_INCLUDE_DIRS}
+		${OpenCV_INCLUDE_DIRS}
+		${MVIMPACT_INCLUDE_DIRS}
+		${JSONCPP_INCLUDE_DIRS}
+		/opt/intel/composer_xe_2015.1.133/ipp/include/
+		)
 
 
 #--------------------------------------------------------------------------------------------------

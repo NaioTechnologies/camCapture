@@ -49,6 +49,8 @@ public:
 		: folderPath_{ folderPath }
 	{ }
 
+	~FileOutput(){ }
+
 	virtual bool compute_result( co::ParamContext& context, const co::OutputResult& inResult ) final
 	{
 		const cm::BitmapPairEntry* bmEntry = dynamic_cast<cm::BitmapPairEntry*>(
@@ -64,23 +66,23 @@ public:
 
 		bool generatedL = im::AsyncImporter::generate_filename( folderPath_, "",
 																id->get_index(),
-																id->get_timestamp(), "",
+																id->get_timestamp(), "l",
 																"tif", filepathL );
 
 		bool generatedR = im::AsyncImporter::generate_filename( folderPath_, "",
 																id->get_index(),
-																id->get_timestamp(), "",
+																id->get_timestamp(), "r",
 																"tif", filepathR );
 
-		if( generatedL )
+		if( generatedL && generatedR )
 		{
 			io::TiffWriter tiffWriterL{ filepathL };
 			tiffWriterL.write_to_file( bmEntry->bitmap_left(), id->get_index(),
 									   id->get_timestamp(), 22.f );
 
-			//io::TiffWriter tiffWriterR{ filepathR };
-			//tiffWriterR.write_to_file( bmEntry->bitmap_right(), id->get_index(),
-			//						   id->get_timestamp(), 22.f );
+			io::TiffWriter tiffWriterR{ filepathR };
+			tiffWriterR.write_to_file( bmEntry->bitmap_right(), id->get_index(),
+									   id->get_timestamp(), 22.f );
 		}
 		else
 		{
@@ -88,7 +90,7 @@ public:
 		}
 
 		result.stop_benchmark();
-		result.print_benchmark( "FileOuput:" );
+		//result.print_benchmark( "FileOuput:" );
 
 		for( auto& iter : get_output_list() )
 		{
@@ -107,6 +109,12 @@ public:
 	virtual bool query_output_metrics( co::OutputMetrics& outputMetrics ) final
 	{
 		cl::ignore( outputMetrics );
+		return false;
+	}
+
+	virtual bool query_output_format( co::OutputFormat& outputFormat ) final
+	{
+		cl::ignore( outputFormat );
 		return false;
 	}
 
@@ -140,6 +148,8 @@ private:
 	virtual bool compute_result( co::ParamContext& context, const co::OutputResult& result ) final;
 
 	virtual bool query_output_metrics( co::OutputMetrics& om ) final;
+
+	virtual bool query_output_format( co::OutputFormat& of ) final;
 
 //--Data members------------------------------------------------------------------------------------
 private:
